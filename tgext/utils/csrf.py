@@ -2,14 +2,43 @@ from __future__ import unicode_literals
 
 import tg
 from tg.decorators import before_validate
+from tg.configurator import ConfigurationComponent, EnvironmentLoadedConfigurationAction
+from tg.support.converters import asbool, asint
+from tg.appwrappers import ApplicationWrapper
 
+from datetime import datetime
 import os
-import hashlib
+import hmac
+import logging
 
-ROOT = '/'
-CSRF_TOKEN = '_csrf_token'
-EXPIRES = 600  # seconds
+
+def asbytes(obj):
+    return obj.encode('ascii')
+
 ENCODING = 'latin1'
+
+
+class CSRFConfigurationComponent(ConfigurationComponent):
+    """A component that will add CSRF protection to your forms"""
+    id = 'csrf'
+
+    def get_defaults(self):
+        return {
+            'csrf.enabled': True,
+            'csrf.secret': None,
+            'csrf.token_name': '_csrf_token',
+            'csrf.expires': 60 * 10,
+            'csrf.path': '/',  # cookie path
+        }
+    def get_coercion(self):
+        return {
+            'csrf.enabled': asbool,
+            'csrf.secret': asbytes,
+            'csrf.expires': asint,
+        }
+
+    def on_bind(self, configurator):
+        pass
 
 
 def _get_conf():
@@ -20,12 +49,9 @@ def _get_conf():
     """
     conf = tg.config
     csrf_secret = conf['csrf.secret']
-    csrf_token_name = str(conf.get('csrf.token_name', CSRF_TOKEN))
-    csrf_path = conf.get('csrf.path', ROOT).encode(ENCODING)
-    try:
-        cookie_expires = int(conf.get('csrf.expires', EXPIRES))
-    except ValueError:
-        cookie_expires = EXPIRES
+    csrf_token_name = conf['csrf.token_name']
+    csrf_path = conf['csrf.path'].encode(ENCODING)
+    cookie_expires = conf['csrf.expires']
     return csrf_secret, csrf_token_name, csrf_path, cookie_expires
 
 
@@ -35,12 +61,30 @@ def _generate_csrf_token():
     ``request.csrf_token`` attribute for easier access by other functions.
     """
     secret, token_name, path, expires = _get_conf()
-    sha256 = hashlib.sha256()
-    sha256.update(os.urandom(8))
-    token = sha256.hexdigest().encode(ENCODING)
-    tg.response.signed_cookie(token_name, token, secret,
+    session_id = tg.session['_id']
+    tg.session.save()
+    timestamp = str(datetime.utcnow().timestamp())
+    digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod='sha384').hexdigest()
+    token = digest + ',' + timestamp
+    tg.response.signed_cookie(token_name, token, secret.decode('ascii'),
                               path=path, max_age=expires)
-    tg.request.csrf_token = token.decode(ENCODING)
+    tg.request.csrf_token = token
+
+
+def _csrf_error(reason):
+    logging.warning('possible CSRF attack mitigated, details: %s', reason)
+    tg.abort(403, 'The form you submitted is invalid or has expired: ' + reason)
+
+
+def _validate_csrf(token):
+    secret, token_name, path, expires = _get_conf()
+    session_id = tg.session['_id'] 
+    digest, timestamp = token.split(',')
+    if float(timestamp) < datetime.utcnow().timestamp() - expires:
+        _csrf_error('expired')
+    new_digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod='sha384').hexdigest()
+    if not hmac.compare_digest(digest, new_digest):
+        _csrf_error('digest differs')
 
 
 @before_validate
@@ -72,18 +116,9 @@ def csrf_token(remainder, params):
             ....
         </form>
     """
-    req = tg.request._current_obj()
-
-    secret, token_name, path, expires = _get_conf()
-    token = req.signed_cookie(token_name, secret=secret)
-    if token:
-        # We will reuse existing tokens
-        tg.response.signed_cookie(token_name, token, secret,
-                                  path=path, max_age=expires)
-        req.csrf_token = token.decode('utf8')
-    else:
-        _generate_csrf_token()
+    _generate_csrf_token()
     # Pages with CSRF tokens should not be cached
+    req = tg.request._current_obj()
     req.headers[str('Cache-Control')] = ('no-cache, max-age=0, '
                                          'must-revalidate, no-store')
 
@@ -111,11 +146,18 @@ def csrf_protect(remainder, params):
     req = tg.request._current_obj()
 
     secret, token_name, path, expires = _get_conf()
-    token = req.signed_cookie(token_name, secret=secret)
-    if not token:
-        tg.abort(403, 'The form you submitted is invalid or has expired')
+    
+    cookie_token = req.signed_cookie(token_name, secret=secret.decode('ascii'))
+    if not cookie_token:
+        _csrf_error('csrf cookie not present')
 
     form_token = req.args_params.get(token_name)
-    if form_token != token.decode(ENCODING):
+    if not form_token:
+        _csrf_error('csrf input not present')
+
+    if form_token != cookie_token:
         tg.response.delete_cookie(token_name, path=path)
-        tg.abort(403, 'The form you submitted is invalid or has expired')
+        _csrf_error('cookie and input mismatch')
+
+    _validate_csrf(form_token)
+    
