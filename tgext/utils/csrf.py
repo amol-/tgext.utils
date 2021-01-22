@@ -4,7 +4,6 @@ import tg
 from tg.decorators import before_validate
 from tg.configurator import ConfigurationComponent, EnvironmentLoadedConfigurationAction
 from tg.support.converters import asbool, asint
-from tg.appwrappers import ApplicationWrapper
 
 from datetime import datetime
 import os
@@ -91,11 +90,9 @@ def _validate_csrf(token):
 def csrf_token(remainder, params):
     """
     Create and set CSRF token in preparation for subsequent POST request. This
-    decorator is used to set the token. It also sets the ``'Cache-Control'``
-    header in order to prevent caching of the page on which the token appears.
-
-    When an existing token cookie is found, it is reused. The existing token is
-    reset so that the expiration time is extended each time it is reused.
+    decorator is used to set the token.
+    It also sets the ``'Cache-Control'`` header in order to prevent caching of
+    the page on which the token appears.
 
     The POST handler must use the :py:func:`~csrf_protect` decorator for the
     token to be used in any way.
@@ -109,7 +106,8 @@ def csrf_token(remainder, params):
             return dict(token=request.csrf_token)
 
     In a view, you can render this token as a hidden field inside the form. The
-    hidden field must have a name ``_csrf_token``::
+    hidden field must have the name specified in configuration ``csrf.token_name``,
+    by default it is ``_csrf_token``::
 
         <form method="POST">
             <input type="hidden" name="_csrf_token" value="{{ token }}">
@@ -136,12 +134,9 @@ def csrf_protect(remainder, params):
     CSRF-protection-specific. All it needs is the decorator::
 
         @csrf_protect
-        @expose('myapp.templates.protected_post_handler')
+        @expose()
         def protected_post_handler():
-            if successful:
-                tg.redirect('/someplace')
-            return dict(errors="There were some errors")
-
+            return 'OK!'
     """
     req = tg.request._current_obj()
 

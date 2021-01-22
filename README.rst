@@ -31,6 +31,9 @@ The user must apply ``@csrf_token`` decorator to the action that exposes the for
 and put an ``<input type="hidden">`` into the form with a ``request.csrf_token`` as
 the value and ``_csrf_token`` as name:
 
+The user also should register the ``CSRFConfigurationComponent`` in it's application configuration
+and configure at least ``csrf.secret`` in the blueprint/ini file (uuid4 is a good choice)
+
 .. code-block:: python
 
     @csrf_token
@@ -39,6 +42,7 @@ the value and ``_csrf_token`` as name:
         return '''
         <form method="POST" action="/post_form">
             <input type="hidden" name="_csrf_token" value="%s">
+	    <input type="submit"/>
         </form>''' % request.csrf_token
 
 The action that receives the form must have ``@csrf_protect`` decorator,
@@ -50,6 +54,9 @@ no particular action or check is required on this action:
     @expose()
     def post_form(self, **kwargs):
         return 'OK!'
+
+The generated cookie uses HMAC with sha384, sessionid and a timestamp, so each request gets a different token.
+A signed cookie is also used to follow the double submit guideline https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
 
 MetaTags
 ========
