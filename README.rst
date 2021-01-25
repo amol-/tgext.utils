@@ -58,6 +58,17 @@ no particular action or check is required on this action:
 The generated cookie uses HMAC with sha384, sessionid and a timestamp, so each request gets a different token.
 A signed cookie is also used to follow the double submit guideline https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
 
+.. warning::
+   This impacts user experience and usability.
+   You may find the browser's back button "takes the user to expired forms"
+   You may get additional expiration issues when the user uses multiple tabs of their browser
+
+.. warning::
+    If you're stuck with ``TG<2.4`` then upgrading this package (after 0.0.4) requires some (little) additional configuration work
+
+.. warning::
+   To make the double submit cookie technique more effective, using ``HSTS`` is highly recommended
+
 MetaTags
 ========
 
@@ -109,3 +120,16 @@ Storage
 file is stored inside /public/storage/${uuid1} folder thus also accessible using internal tg file serving.
 
 
+Changelog
+=========
+
+- v0.0.5
+
+  CSRF module: improved csrf module, config as per tg 2.4+
+
+- v0.0.4
+  META module: xss prevention
+
+- v0.0.3
+  STORAGE module: implemented
+  SLUG module: minor fix and documentation
