@@ -24,6 +24,9 @@ should just work for most of the users.
 CSRF Protection
 ===============
 
+.. Note::
+   Before CSRF protection, be sure to protect your app from XSS attacks
+
 ``tgext.utils.csrf`` provides two decorators ``@csrf_token`` and ``@csrf_protect`` which
 generate a CSRF token for inclusion in a form and check that the token is valid.
 
@@ -57,6 +60,10 @@ no particular action or check is required on this action:
 
 The generated cookie uses HMAC with sha384, sessionid and a timestamp, so each request gets a different token.
 A signed cookie is also used to follow the double submit guideline https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
+
+Handling of the error is configurable through ``crsf.error_handler`` it should be a function that accepts
+a ``str`` that is the reason of the failure. by default it logs the warning and returns 403 to the user.
+A custom handler should either raise exceptions or raise ``tg.abort`` or ``tg.redirect``.
 
 .. warning::
    This impacts user experience and usability.
