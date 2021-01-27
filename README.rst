@@ -131,7 +131,7 @@ Changelog
 =========
 
 - v0.0.5
-
+  Drop python 2.7 compatibility
   CSRF module: improved csrf module, config as per tg 2.4+
 
 - v0.0.4
