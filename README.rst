@@ -30,11 +30,12 @@ CSRF Protection
 ``tgext.utils.csrf`` provides two decorators ``@csrf_token`` and ``@csrf_protect`` which
 generate a CSRF token for inclusion in a form and check that the token is valid.
 
-The user must apply ``@csrf_token`` decorator to the action that exposes the form,
+You must apply ``@csrf_token`` decorator to the action that exposes the form,
 and put an ``<input type="hidden">`` into the form with a ``request.csrf_token`` as
 the value and ``_csrf_token`` as name:
 
-The user also should register the ``CSRFConfigurationComponent`` in it's application configuration
+You must make sure sessions are enabled
+You also should register the ``CSRFConfigurationComponent`` in it's application configuration
 and configure at least ``csrf.secret`` in the blueprint/ini file (uuid4 is a good choice)
 
 .. code-block:: python
