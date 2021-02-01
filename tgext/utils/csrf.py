@@ -5,8 +5,7 @@ from tg.decorators import before_validate
 from tg.configurator import ConfigurationComponent, EnvironmentLoadedConfigurationAction
 from tg.support.converters import asbool, asint
 
-from datetime import datetime
-import os
+import time
 import hmac
 import logging
 
@@ -69,7 +68,7 @@ def _generate_csrf_token():
     secret, token_name, path, expires, _ = _get_conf()
     session_id = tg.session['_id']
     tg.session.save()
-    timestamp = str(datetime.utcnow().timestamp())
+    timestamp = str(time.time())
     digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod='sha384').hexdigest()
     token = digest + ',' + timestamp
     tg.response.signed_cookie(token_name, token, secret.decode('ascii'),
@@ -81,7 +80,7 @@ def _validate_csrf(token):
     secret, token_name, path, expires, handler = _get_conf()
     session_id = tg.session['_id'] 
     digest, timestamp = token.split(',')
-    if float(timestamp) < datetime.utcnow().timestamp() - expires:
+    if float(timestamp) < time.time() - expires:
         handler('expired')
     new_digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod='sha384').hexdigest()
     if not hmac.compare_digest(digest, new_digest):
