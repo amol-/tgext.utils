@@ -117,8 +117,7 @@ def csrf_token(remainder, params):
     """
     _generate_csrf_token()
     # Pages with CSRF tokens should not be cached
-    req = tg.request._current_obj()
-    req.headers[str('Cache-Control')] = ('no-cache, max-age=0, '
+    tg.request.headers[str('Cache-Control')] = ('no-cache, max-age=0, '
                                          'must-revalidate, no-store')
 
 
@@ -139,15 +138,13 @@ def csrf_protect(remainder, params):
         def protected_post_handler():
             return 'OK!'
     """
-    req = tg.request._current_obj()
-
     secret, token_name, path, expires, handler = _get_conf()
     
-    cookie_token = req.signed_cookie(token_name, secret=secret.decode('ascii'))
+    cookie_token = tg.request.signed_cookie(token_name, secret=secret.decode('ascii'))
     if not cookie_token:
         handler('csrf cookie not present')
 
-    form_token = req.args_params.get(token_name)
+    form_token = tg.request.args_params.get(token_name)
     if not form_token:
         handler('csrf input not present')
 
