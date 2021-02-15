@@ -3,7 +3,10 @@ from tg import expose, TGController, MinimalApplicationConfigurator, request
 from tg.configurator.components.session import SessionConfigurationComponent
 import webtest
 from tgext.utils.csrf import csrf_protect, csrf_token, CSRFConfigurationComponent
-from unittest.mock import patch, Mock
+try:
+    from unittest.mock import patch, Mock
+except ImportError:
+    from mock import patch, Mock
 
 
 class RootController(TGController):
