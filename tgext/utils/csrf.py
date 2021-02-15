@@ -1,13 +1,12 @@
 from __future__ import unicode_literals
-
+import time
+import hmac
+import logging
+from hashlib import sha384
 import tg
 from tg.decorators import before_validate
 from tg.configurator import ConfigurationComponent, EnvironmentLoadedConfigurationAction
 from tg.support.converters import asbool, asint
-
-import time
-import hmac
-import logging
 
 
 def asbytes(obj):
@@ -69,7 +68,7 @@ def _generate_csrf_token():
     session_id = tg.session['_id']
     tg.session.save()
     timestamp = str(time.time())
-    digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod='sha384').hexdigest()
+    digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod=sha384).hexdigest()
     token = digest + ',' + timestamp
     tg.response.signed_cookie(token_name, token, secret.decode('ascii'),
                               path=path, max_age=expires)
@@ -82,7 +81,7 @@ def _validate_csrf(token):
     digest, timestamp = token.split(',')
     if float(timestamp) < time.time() - expires:
         handler('expired')
-    new_digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod='sha384').hexdigest()
+    new_digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod=sha384).hexdigest()
     if not hmac.compare_digest(digest, new_digest):
         handler('digest differs')
 
