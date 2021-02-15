@@ -4,9 +4,9 @@ from tg.configurator.components.session import SessionConfigurationComponent
 import webtest
 from tgext.utils.csrf import csrf_protect, csrf_token, CSRFConfigurationComponent
 try:
-    from unittest.mock import patch, Mock
+    from unittest import mock
 except ImportError:
-    from mock import patch, Mock
+    import mock
 
 
 class RootController(TGController):
@@ -52,26 +52,26 @@ class TestWSGIMiddleware(object):
     def make_app(self, **options):
         return webtest.TestApp(self.wsgi_app)
 
-    @patch('tg.session', SessionMocked())
+    @mock.patch('tg.session', SessionMocked())
     def test_token_is_set(self):
         app = self.make_app()
         app.get('/index')
         assert '_csrf_token' in app.cookies
 
-    @patch('tg.session', SessionMocked())
+    @mock.patch('tg.session', SessionMocked())
     def test_token_is_validated(self):
         app = self.make_app()
         resp = app.get('/post_form', status=403)
         assert 'The form you submitted is invalid or has expired' in resp
 
-    @patch('tg.session', SessionMocked())
+    @mock.patch('tg.session', SessionMocked())
     def test_cookie_alone_is_not_enough(self):
         app = self.make_app()
         app.get('/index')
         resp = app.get('/post_form', status=403)
         assert 'The form you submitted is invalid or has expired' in resp
 
-    @patch('tg.session', SessionMocked())
+    @mock.patch('tg.session', SessionMocked())
     def test_cookie_and_form_pass_check(self):
         app = self.make_app()
         resp = app.get('/form')

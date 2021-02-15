@@ -1,5 +1,6 @@
 from setuptools import setup, find_packages
 import os
+from sys import version_info
 
 here = os.path.abspath(os.path.dirname(__file__))
 try:
@@ -11,6 +12,10 @@ version = "0.0.4"
 
 TEST_DEPENDENCIES = ['pytest',
                      'WebTest']
+
+
+if version_info[0] == 2:
+    TEST_DEPENDENCIES.append('mock')
 
 
 setup(

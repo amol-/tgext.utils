@@ -82,8 +82,13 @@ def _validate_csrf(token):
     if float(timestamp) < time.time() - expires:
         handler('expired')
     new_digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod=sha384).hexdigest()
-    if not hmac.compare_digest(digest, new_digest):
-        handler('digest differs')
+    try:
+        if not hmac.compare_digest(digest, new_digest):
+            handler('digest differs')
+    except TypeError:
+        # python < 3.3 but possible timing attack
+        if digest != new_digest:
+            handler('digest differs')
 
 
 @before_validate
