@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
-from tg import expose, TGController, AppConfig, request
+from tg import expose, TGController, MinimalApplicationConfigurator, request
+from tg.configurator.components.session import SessionConfigurationComponent
 import webtest
-from tgext.utils.csrf import csrf_protect, csrf_token
+from tgext.utils.csrf import csrf_protect, csrf_token, CSRFConfigurationComponent
+try:
+    from unittest import mock
+except ImportError:
+    import mock
 
 
 class RootController(TGController):
@@ -24,32 +29,49 @@ class RootController(TGController):
         </form>''' % request.csrf_token
 
 
+class SessionMocked:
+    def save(self):
+        pass
+    _id = '123'
+
+    def __getitem__(self, k):
+        return getattr(self, k)
+
 class TestWSGIMiddleware(object):
     @classmethod
     def setup_class(cls):
-        config = AppConfig(minimal=True, root_controller=RootController())
-        config['csrf.secret'] = 'MYSECRET'
+        config = MinimalApplicationConfigurator()
+        config.update_blueprint({
+            'root_controller': RootController(),
+            'csrf.secret': 'MYSECRET',
+        })
+        config.register(CSRFConfigurationComponent)
+        config.register(SessionConfigurationComponent)
         cls.wsgi_app = config.make_wsgi_app()
 
     def make_app(self, **options):
         return webtest.TestApp(self.wsgi_app)
 
+    @mock.patch('tg.session', SessionMocked())
     def test_token_is_set(self):
         app = self.make_app()
         app.get('/index')
         assert '_csrf_token' in app.cookies
 
+    @mock.patch('tg.session', SessionMocked())
     def test_token_is_validated(self):
         app = self.make_app()
         resp = app.get('/post_form', status=403)
         assert 'The form you submitted is invalid or has expired' in resp
 
+    @mock.patch('tg.session', SessionMocked())
     def test_cookie_alone_is_not_enough(self):
         app = self.make_app()
         app.get('/index')
         resp = app.get('/post_form', status=403)
         assert 'The form you submitted is invalid or has expired' in resp
 
+    @mock.patch('tg.session', SessionMocked())
     def test_cookie_and_form_pass_check(self):
         app = self.make_app()
         resp = app.get('/form')

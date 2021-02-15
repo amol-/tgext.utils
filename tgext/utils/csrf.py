@@ -1,15 +1,47 @@
 from __future__ import unicode_literals
-
+import time
+import hmac
+import logging
+from hashlib import sha384
 import tg
 from tg.decorators import before_validate
+from tg.configurator import ConfigurationComponent, EnvironmentLoadedConfigurationAction
+from tg.support.converters import asbool, asint
 
-import os
-import hashlib
 
-ROOT = '/'
-CSRF_TOKEN = '_csrf_token'
-EXPIRES = 600  # seconds
+def asbytes(obj):
+    return obj.encode('ascii')
+
 ENCODING = 'latin1'
+
+
+def _csrf_error(reason):
+    logging.warning('possible CSRF attack mitigated, details: %s', reason)
+    tg.abort(403, 'The form you submitted is invalid or has expired: ' + reason)
+
+
+class CSRFConfigurationComponent(ConfigurationComponent):
+    """A component that will add CSRF protection to your forms"""
+    id = 'csrf'
+
+    def get_defaults(self):
+        return {
+            'csrf.enabled': True,
+            'csrf.secret': None,
+            'csrf.token_name': '_csrf_token',
+            'csrf.expires': 60 * 10,
+            'csrf.path': '/',  # cookie path
+            'csrf.error_handler': _csrf_error,
+        }
+    def get_coercion(self):
+        return {
+            'csrf.enabled': asbool,
+            'csrf.secret': asbytes,
+            'csrf.expires': asint,
+        }
+
+    def on_bind(self, configurator):
+        pass
 
 
 def _get_conf():
@@ -20,13 +52,11 @@ def _get_conf():
     """
     conf = tg.config
     csrf_secret = conf['csrf.secret']
-    csrf_token_name = str(conf.get('csrf.token_name', CSRF_TOKEN))
-    csrf_path = conf.get('csrf.path', ROOT).encode(ENCODING)
-    try:
-        cookie_expires = int(conf.get('csrf.expires', EXPIRES))
-    except ValueError:
-        cookie_expires = EXPIRES
-    return csrf_secret, csrf_token_name, csrf_path, cookie_expires
+    csrf_token_name = conf['csrf.token_name']
+    csrf_path = conf['csrf.path'].encode(ENCODING)
+    cookie_expires = conf['csrf.expires']
+    handler = conf['csrf.error_handler']
+    return csrf_secret, csrf_token_name, csrf_path, cookie_expires, handler
 
 
 def _generate_csrf_token():
@@ -34,24 +64,40 @@ def _generate_csrf_token():
     Generate and set new CSRF token in cookie. The generated token is set to
     ``request.csrf_token`` attribute for easier access by other functions.
     """
-    secret, token_name, path, expires = _get_conf()
-    sha256 = hashlib.sha256()
-    sha256.update(os.urandom(8))
-    token = sha256.hexdigest().encode(ENCODING)
-    tg.response.signed_cookie(token_name, token, secret,
+    secret, token_name, path, expires, _ = _get_conf()
+    session_id = tg.session['_id']
+    tg.session.save()
+    timestamp = str(time.time())
+    digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod=sha384).hexdigest()
+    token = digest + ',' + timestamp
+    tg.response.signed_cookie(token_name, token, secret.decode('ascii'),
                               path=path, max_age=expires)
-    tg.request.csrf_token = token.decode(ENCODING)
+    tg.request.csrf_token = token
+
+
+def _validate_csrf(token):
+    secret, token_name, path, expires, handler = _get_conf()
+    session_id = tg.session['_id'] 
+    digest, timestamp = token.split(',')
+    if float(timestamp) < time.time() - expires:
+        handler('expired')
+    new_digest = hmac.new(secret, (session_id + timestamp).encode('ascii'), digestmod=sha384).hexdigest()
+    try:
+        if not hmac.compare_digest(digest, new_digest):
+            handler('digest differs')
+    except TypeError:
+        # python < 3.3 but possible timing attack
+        if digest != new_digest:
+            handler('digest differs')
 
 
 @before_validate
 def csrf_token(remainder, params):
     """
     Create and set CSRF token in preparation for subsequent POST request. This
-    decorator is used to set the token. It also sets the ``'Cache-Control'``
-    header in order to prevent caching of the page on which the token appears.
-
-    When an existing token cookie is found, it is reused. The existing token is
-    reset so that the expiration time is extended each time it is reused.
+    decorator is used to set the token.
+    It also sets the ``'Cache-Control'`` header in order to prevent caching of
+    the page on which the token appears.
 
     The POST handler must use the :py:func:`~csrf_protect` decorator for the
     token to be used in any way.
@@ -65,26 +111,17 @@ def csrf_token(remainder, params):
             return dict(token=request.csrf_token)
 
     In a view, you can render this token as a hidden field inside the form. The
-    hidden field must have a name ``_csrf_token``::
+    hidden field must have the name specified in configuration ``csrf.token_name``,
+    by default it is ``_csrf_token``::
 
         <form method="POST">
             <input type="hidden" name="_csrf_token" value="{{ token }}">
             ....
         </form>
     """
-    req = tg.request._current_obj()
-
-    secret, token_name, path, expires = _get_conf()
-    token = req.signed_cookie(token_name, secret=secret)
-    if token:
-        # We will reuse existing tokens
-        tg.response.signed_cookie(token_name, token, secret,
-                                  path=path, max_age=expires)
-        req.csrf_token = token.decode('utf8')
-    else:
-        _generate_csrf_token()
+    _generate_csrf_token()
     # Pages with CSRF tokens should not be cached
-    req.headers[str('Cache-Control')] = ('no-cache, max-age=0, '
+    tg.request.headers[str('Cache-Control')] = ('no-cache, max-age=0, '
                                          'must-revalidate, no-store')
 
 
@@ -101,21 +138,23 @@ def csrf_protect(remainder, params):
     CSRF-protection-specific. All it needs is the decorator::
 
         @csrf_protect
-        @expose('myapp.templates.protected_post_handler')
+        @expose()
         def protected_post_handler():
-            if successful:
-                tg.redirect('/someplace')
-            return dict(errors="There were some errors")
-
+            return 'OK!'
     """
-    req = tg.request._current_obj()
+    secret, token_name, path, expires, handler = _get_conf()
+    
+    cookie_token = tg.request.signed_cookie(token_name, secret=secret.decode('ascii'))
+    if not cookie_token:
+        handler('csrf cookie not present')
 
-    secret, token_name, path, expires = _get_conf()
-    token = req.signed_cookie(token_name, secret=secret)
-    if not token:
-        tg.abort(403, 'The form you submitted is invalid or has expired')
+    form_token = tg.request.args_params.get(token_name)
+    if not form_token:
+        handler('csrf input not present')
 
-    form_token = req.args_params.get(token_name)
-    if form_token != token.decode(ENCODING):
+    if form_token != cookie_token:
         tg.response.delete_cookie(token_name, path=path)
-        tg.abort(403, 'The form you submitted is invalid or has expired')
+        handler('cookie and input mismatch')
+
+    _validate_csrf(form_token)
+    
